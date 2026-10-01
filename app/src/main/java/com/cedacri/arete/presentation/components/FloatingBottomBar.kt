@@ -155,7 +155,7 @@ fun FloatingBottomBar(
                                 type = item,
                                 selected = index == selectedIndex,
                                 onClick = {
-                                    navigation.navigateTo(item.navKey)
+                                    navigation.replaceScreen(item.navKey)
                                 }
                             )
 

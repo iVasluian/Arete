@@ -24,6 +24,21 @@ data class OfficeLayout(
             )
         }
 
+    val columnsWithObstacles: Int
+        get() {
+            val maxSeatColumn = seats.maxOfOrNull { it.column } ?: 0
+
+            val maxObstacleColumn =
+                obstacles.maxOfOrNull {
+                    it.column + it.columnSpan - 1
+                } ?: 0
+
+            return maxOf(
+                maxSeatColumn,
+                maxObstacleColumn
+            )
+        }
+
     val officeTitle: String
         get() = officeName
 

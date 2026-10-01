@@ -2,6 +2,8 @@ package com.cedacri.arete.presentation.screens.seatReservation
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -19,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonColors
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -29,7 +30,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuItemColors
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -49,9 +49,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -81,7 +81,7 @@ fun OfficeMapScreen(
     val availableSeatColor by tokenStorage
         .getAvailableSeatColorFlow()
         .collectAsState(
-            initial = "#43A047"
+            initial = "#1A000000"
         )
 
     val snackBarHostState = remember {
@@ -118,7 +118,8 @@ fun OfficeMapScreen(
             ) {
                 SnackbarHost(
                     hostState = snackBarHostState,
-                    modifier = Modifier.padding(top = 16.dp))
+                    modifier = Modifier.padding(top = 16.dp)
+                )
             }
         }
     ) { padding ->
@@ -142,18 +143,9 @@ private fun SeatReservationContent(
 ) {
     val horizontalScrollState = rememberScrollState()
     val verticalScrollState = rememberScrollState()
-
-    var scale by remember {
-        mutableFloatStateOf(1f)
-    }
-
-    var offset by remember {
-        mutableStateOf(Offset.Zero)
-    }
-
-    val state = rememberTransformableState { zoomChange, panChange, rotationChange ->
-        scale = (scale * zoomChange).coerceIn(1f, 5f)
-
+    var zoom by remember { mutableFloatStateOf(1f) }
+    val transformState = rememberTransformableState { zoomChange, panChange, rotationChange ->
+        zoom = (zoom * zoomChange).coerceIn(1f, 4f)
     }
 
     val visibleGroups = remember(
@@ -216,15 +208,67 @@ private fun SeatReservationContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .graphicsLayer{
-                        scaleX = scale
-                        scaleY = scale
-                        translationX = offset.x
-                        translationY = offset.y
-                    }
                     .horizontalScroll(horizontalScrollState)
                     .verticalScroll(verticalScrollState)
-//                    .transformable(state)
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(
+                                requireUnconsumed = false,
+                                pass = PointerEventPass.Initial
+                            )
+
+                            var transforming = false
+
+                            while (true) {
+                                val event = awaitPointerEvent(
+                                    pass = PointerEventPass.Initial
+                                )
+                                val pressedPointers =
+                                    event.changes.filter { it.pressed }
+
+                                if (pressedPointers.isEmpty()) {
+                                    break
+                                }
+
+                                if (pressedPointers.size >= 2) {
+                                    transforming = true
+                                    val first = pressedPointers[0]
+                                    val second = pressedPointers[1]
+                                    val oldDistance =
+                                        (first.previousPosition -
+                                                second.previousPosition)
+                                            .getDistance()
+                                    val newDistance =
+                                        (first.position -
+                                                second.position)
+                                            .getDistance()
+
+                                    if (oldDistance > 0f) {
+                                        val scale =
+                                            newDistance / oldDistance
+                                        zoom = (zoom * scale)
+                                            .coerceIn(1f, 4f)
+                                    }
+
+                                    event.changes.forEach {
+                                        it.consume()
+                                    }
+                                } else if (!transforming) {
+                                    val change = pressedPointers.first()
+                                    val delta =
+                                        change.position -
+                                                change.previousPosition
+                                    horizontalScrollState.dispatchRawDelta(
+                                        -delta.x
+                                    )
+                                    verticalScrollState.dispatchRawDelta(
+                                        -delta.y
+                                    )
+                                    change.consume()
+                                }
+                            }
+                        }
+                    }
             ) {
 
                 OfficeGrid(
@@ -233,6 +277,7 @@ private fun SeatReservationContent(
                     selectedGroupIds = uiState.selectedGroupIds,
                     currentUserGroup = uiState.currentUserGroup,
                     availableSeatColor = availableSeatColor,
+                    zoom = zoom,
                     onSeatClick = { seat ->
                         onIntent(SeatReservationIntent.SeatClicked(seat))
                     }
@@ -333,7 +378,7 @@ private fun DateButton(
         Button(
             modifier = modifier,
             onClick = onClick,
-            colors =  ButtonDefaults.buttonColors().copy(
+            colors = ButtonDefaults.buttonColors().copy(
                 contentColor = MaterialTheme.colorScheme.secondary,
                 containerColor = MaterialTheme.colorScheme.tertiary
             )
@@ -397,14 +442,17 @@ private fun OfficeDropdown(
     ) {
 
         OutlinedTextField(
-            modifier = Modifier.menuAnchor()
+            modifier = Modifier
+                .menuAnchor()
                 .fillMaxWidth(),
             readOnly = true,
             value = selected?.officeTitle ?: "",
             onValueChange = {},
             label = {
-                Text("Office",
-                    color = MaterialTheme.colorScheme.secondary)
+                Text(
+                    "Office",
+                    color = MaterialTheme.colorScheme.secondary
+                )
             },
 
             colors = OutlinedTextFieldDefaults.colors(
@@ -429,8 +477,10 @@ private fun OfficeDropdown(
             offices.forEach { office ->
                 DropdownMenuItem(
                     text = {
-                        Text(office.officeTitle,
-                            textAlign = TextAlign.Center)
+                        Text(
+                            office.officeTitle,
+                            textAlign = TextAlign.Center
+                        )
                     },
                     onClick = {
                         expanded = false
@@ -455,7 +505,11 @@ private fun ReservationConfirmationDialog(
     AlertDialog(
         shape = RoundedCornerShape(16.dp),
         containerColor = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.border((1.5f).dp, MaterialTheme.colorScheme.tertiary, RoundedCornerShape(16.dp)),
+        modifier = Modifier.border(
+            (1.5f).dp,
+            MaterialTheme.colorScheme.tertiary,
+            RoundedCornerShape(16.dp)
+        ),
         onDismissRequest = onDismiss,
         title = {
             Text(
@@ -501,16 +555,20 @@ private fun ReservationConfirmationDialog(
                     containerColor = MaterialTheme.colorScheme.tertiary
                 )
             ) {
-                Text("Reserve",
-                    color = Color.White)
+                Text(
+                    "Reserve",
+                    color = Color.White
+                )
             }
         },
         dismissButton = {
             TextButton(
                 onClick = onDismiss
             ) {
-                Text("Cancel",
-                    color = MaterialTheme.colorScheme.secondary)
+                Text(
+                    "Cancel",
+                    color = MaterialTheme.colorScheme.secondary
+                )
             }
         }
     )
@@ -765,8 +823,10 @@ private fun EmployeeInfoDialog(
                         containerColor = MaterialTheme.colorScheme.tertiary
                     )
                 ) {
-                    Text("Close",
-                        color = MaterialTheme.colorScheme.secondary)
+                    Text(
+                        "Close",
+                        color = MaterialTheme.colorScheme.secondary
+                    )
                 }
             }
         }

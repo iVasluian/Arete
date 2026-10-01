@@ -9,7 +9,7 @@ object OfficeGridBuilder {
     fun build(office: OfficeLayout): GridModel {
         val matrix = Matrix(
             initialRows = office.rows,
-            columns = office.columns
+            columns = office.columnsWithObstacles
         )
 
         placeObstacles(matrix, office)
@@ -56,6 +56,7 @@ object OfficeGridBuilder {
 
         return GridModel(
             columns = office.columns,
+            columnsWithObstacles = office.columnsWithObstacles,
             rows = rows
         )
     }

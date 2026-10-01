@@ -79,7 +79,7 @@ class LoginViewModel(
 
             result
                 .onSuccess {
-                    navigation.navigateTo(OfficeMap)
+                    navigation.replaceScreen(OfficeMap)
                 }
                 .onFailure {
                     _events.send(
